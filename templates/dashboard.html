@@ -101,7 +101,7 @@
         /* ── Game grid ── */
         .games-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+            grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
             gap: 1rem;
             padding: 0 2rem 2rem;
             max-width: 1400px;
@@ -119,7 +119,7 @@
         .game-card:hover { border-color: #334155; }
         .game-card.live { border-color: #2e7d32; }
 
-        .card-status {
+        .card-header {
             padding: 0.45rem 1rem;
             font-size: 0.75rem;
             font-weight: 600;
@@ -129,41 +129,46 @@
             justify-content: space-between;
             align-items: center;
         }
-        .card-status.final   { background: #1e293b; color: #8899aa; }
-        .card-status.in-progress { background: #1b3a1b; color: #66bb6a; }
-        .card-status.scheduled   { background: #1a2744; color: #5c9ce6; }
-        .card-status.canceled    { background: #2d1a1a; color: #b55; }
+        .card-header.final       { background: #1e293b; color: #8899aa; }
+        .card-header.in-progress { background: #1b3a1b; color: #66bb6a; }
+        .card-header.scheduled   { background: #1a2744; color: #5c9ce6; }
+        .card-header.canceled    { background: #2d1a1a; color: #b55; }
 
-        .card-body { padding: 0.75rem 1rem; }
+        .series-badge {
+            font-size: 0.65rem;
+            font-weight: 600;
+            color: #aab;
+            background: #0a0a0a;
+            padding: 0.15rem 0.5rem;
+            border-radius: 2px;
+            letter-spacing: 0;
+            text-transform: none;
+        }
+
+        .card-body { padding: 0.6rem 1rem 0.75rem; }
 
         .team-row {
             display: flex;
             align-items: center;
             justify-content: space-between;
-            padding: 0.5rem 0;
+            padding: 0.45rem 0;
         }
         .team-row + .team-row {
             border-top: 1px solid #1e293b;
         }
 
-        .team-info {
+        .team-left {
             display: flex;
             align-items: center;
             gap: 0.5rem;
             min-width: 0;
+            flex: 1;
         }
         .team-rank {
             font-size: 0.7rem;
             color: #d4a843;
             font-weight: 700;
             min-width: 24px;
-        }
-        .team-logo {
-            width: 28px;
-            height: 28px;
-            border-radius: 2px;
-            background: #1e293b;
-            object-fit: contain;
         }
         .team-name {
             font-weight: 600;
@@ -177,10 +182,25 @@
             font-size: 0.75rem;
             margin-left: 0.25rem;
         }
+        .team-meta {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            flex-shrink: 0;
+        }
+        .team-record {
+            font-size: 0.7rem;
+            color: #667;
+            text-align: right;
+            line-height: 1.3;
+        }
+        .team-record .conf {
+            color: #8899aa;
+        }
         .team-score {
             font-size: 1.4rem;
             font-weight: 700;
-            min-width: 36px;
+            min-width: 30px;
             text-align: right;
             font-variant-numeric: tabular-nums;
         }
@@ -188,6 +208,18 @@
         .team-row.winner .team-score { color: #fff; }
         .team-row.loser .team-name  { color: #667788; }
         .team-row.loser .team-score { color: #667788; }
+
+        .card-footer {
+            padding: 0.35rem 1rem 0.5rem;
+            border-top: 1px solid #1e293b;
+            display: flex;
+            justify-content: space-between;
+            font-size: 0.65rem;
+            color: #556;
+        }
+        .standing-tag {
+            color: #889;
+        }
 
         /* ── Empty state ── */
         .empty-state {
@@ -233,6 +265,7 @@
             .header { padding: 1rem; }
             .header h1 { font-size: 1.15rem; }
             .games-grid { padding: 0 1rem 1rem; grid-template-columns: 1fr; }
+            .team-record { display: none; }
         }
     </style>
 </head>
@@ -244,24 +277,24 @@
         <span class="badge">LIVE</span>
     </div>
     <div class="header-right">
-        <span class="game-count" id="gameCount">— games</span>
+        <span class="game-count" id="gameCount">-- games</span>
         <span>
             <span class="status-dot idle" id="statusDot"></span>
-            Updated <span id="lastUpdated">—</span>
+            Updated <span id="lastUpdated">--</span>
         </span>
     </div>
 </div>
 
 <div class="date-nav">
-    <button id="prevDay">◀ Prev</button>
+    <button id="prevDay">&#9664; Prev</button>
     <span class="current-date" id="currentDate"></span>
-    <button id="nextDay">Next ▶</button>
+    <button id="nextDay">Next &#9654;</button>
 </div>
 
 <div id="content">
     <div class="loading">
         <div class="spinner"></div>
-        Loading scores…
+        Loading scores...
     </div>
 </div>
 
@@ -327,6 +360,13 @@
         return rank <= 25 ? `#${rank}` : "";
     }
 
+    function standingLabel(standing) {
+        if (!standing || standing === 0) return "";
+        const s = ["th","st","nd","rd"];
+        const v = standing % 100;
+        return standing + (s[(v-20)%10] || s[v] || s[0]);
+    }
+
     function flashDot() {
         $statusDot.className = "status-dot live";
         setTimeout(() => { $statusDot.className = "status-dot idle"; }, 3000);
@@ -352,26 +392,56 @@
         const cards = games.map(g => {
             const cls = statusClass(g.inning_state || g.status);
             const isLive = cls === "in-progress";
+
+            const seriesHtml = g.series_label
+                ? `<span class="series-badge">Series: ${g.series_label}</span>`
+                : "";
+
+            // Build record display: "19-7 (8-2 SEC)"
+            const awayRec = g.away_record
+                ? g.away_record + (g.away_conf_record ? ` <span class="conf">(${g.away_conf_record} SEC)</span>` : "")
+                : "";
+            const homeRec = g.home_record
+                ? g.home_record + (g.home_conf_record ? ` <span class="conf">(${g.home_conf_record} SEC)</span>` : "")
+                : "";
+
+            // Standing + streak for footer
+            const awaySt = g.away_standing ? `${standingLabel(g.away_standing)} in SEC` : "";
+            const homeSt = g.home_standing ? `${standingLabel(g.home_standing)} in SEC` : "";
+            const awayStreak = g.away_streak || "";
+            const homeStreak = g.home_streak || "";
+
             return `
             <div class="game-card ${isLive ? 'live' : ''}">
-                <div class="card-status ${cls}">
+                <div class="card-header ${cls}">
                     <span>${g.inning_state || g.status}</span>
+                    ${seriesHtml}
                 </div>
                 <div class="card-body">
                     <div class="team-row ${teamRowClass(g, 'away')}">
-                        <div class="team-info">
+                        <div class="team-left">
                             <span class="team-rank">${rankLabel(g.away_rank)}</span>
                             <span class="team-name">${g.away_team}<span class="team-abbr">${g.away_abbr}</span></span>
                         </div>
-                        <span class="team-score">${g.away_score}</span>
+                        <div class="team-meta">
+                            <span class="team-record">${awayRec}</span>
+                            <span class="team-score">${g.away_score}</span>
+                        </div>
                     </div>
                     <div class="team-row ${teamRowClass(g, 'home')}">
-                        <div class="team-info">
+                        <div class="team-left">
                             <span class="team-rank">${rankLabel(g.home_rank)}</span>
                             <span class="team-name">${g.home_team}<span class="team-abbr">${g.home_abbr}</span></span>
                         </div>
-                        <span class="team-score">${g.home_score}</span>
+                        <div class="team-meta">
+                            <span class="team-record">${homeRec}</span>
+                            <span class="team-score">${g.home_score}</span>
+                        </div>
                     </div>
+                </div>
+                <div class="card-footer">
+                    <span class="standing-tag">${awaySt}${awayStreak ? ' / ' + awayStreak : ''}</span>
+                    <span class="standing-tag">${homeSt}${homeStreak ? ' / ' + homeStreak : ''}</span>
                 </div>
             </div>`;
         }).join("");
@@ -411,7 +481,6 @@
     function setDate(d) {
         currentDate = d;
         $currentDate.textContent = formatDisplayDate(d);
-        // update URL without reload
         const url = new URL(window.location);
         url.searchParams.set("date", d);
         history.replaceState(null, "", url);
