@@ -1,0 +1,430 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SEC Baseball Scoreboard</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #0a0a0a;
+            color: #e0e0e0;
+            min-height: 100vh;
+        }
+
+        /* ── Header ── */
+        .header {
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            border-bottom: 3px solid #d4a843;
+            padding: 1.25rem 2rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 0.75rem;
+        }
+        .header-left {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+        }
+        .header h1 {
+            font-size: 1.5rem;
+            font-weight: 700;
+            color: #fff;
+            letter-spacing: 0.5px;
+        }
+        .header h1 span {
+            color: #d4a843;
+        }
+        .badge {
+            background: #d4a843;
+            color: #0a0a0a;
+            font-size: 0.75rem;
+            font-weight: 700;
+            padding: 0.2rem 0.6rem;
+            border-radius: 2px;
+        }
+        .header-right {
+            display: flex;
+            align-items: center;
+            gap: 1.25rem;
+            font-size: 0.8rem;
+            color: #8899aa;
+        }
+        .header-right .game-count {
+            font-size: 0.85rem;
+            color: #ccc;
+        }
+        .status-dot {
+            width: 8px; height: 8px;
+            border-radius: 50%;
+            display: inline-block;
+            margin-right: 4px;
+        }
+        .status-dot.live { background: #4caf50; animation: pulse 2s infinite; }
+        .status-dot.idle { background: #888; }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.4; }
+        }
+
+        /* ── Date navigation ── */
+        .date-nav {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 1rem;
+            padding: 1rem;
+        }
+        .date-nav button {
+            background: #1e293b;
+            border: 1px solid #334155;
+            color: #e0e0e0;
+            padding: 0.4rem 0.9rem;
+            border-radius: 3px;
+            cursor: pointer;
+            font-size: 0.85rem;
+        }
+        .date-nav button:hover { background: #334155; }
+        .date-nav .current-date {
+            font-size: 1rem;
+            font-weight: 600;
+            color: #fff;
+            min-width: 160px;
+            text-align: center;
+        }
+
+        /* ── Game grid ── */
+        .games-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+            gap: 1rem;
+            padding: 0 2rem 2rem;
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+
+        /* ── Game card ── */
+        .game-card {
+            background: #141922;
+            border: 1px solid #1e293b;
+            border-radius: 3px;
+            overflow: hidden;
+            transition: border-color 0.2s;
+        }
+        .game-card:hover { border-color: #334155; }
+        .game-card.live { border-color: #2e7d32; }
+
+        .card-status {
+            padding: 0.45rem 1rem;
+            font-size: 0.75rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .card-status.final   { background: #1e293b; color: #8899aa; }
+        .card-status.in-progress { background: #1b3a1b; color: #66bb6a; }
+        .card-status.scheduled   { background: #1a2744; color: #5c9ce6; }
+        .card-status.canceled    { background: #2d1a1a; color: #b55; }
+
+        .card-body { padding: 0.75rem 1rem; }
+
+        .team-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0.5rem 0;
+        }
+        .team-row + .team-row {
+            border-top: 1px solid #1e293b;
+        }
+
+        .team-info {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            min-width: 0;
+        }
+        .team-rank {
+            font-size: 0.7rem;
+            color: #d4a843;
+            font-weight: 700;
+            min-width: 24px;
+        }
+        .team-logo {
+            width: 28px;
+            height: 28px;
+            border-radius: 2px;
+            background: #1e293b;
+            object-fit: contain;
+        }
+        .team-name {
+            font-weight: 600;
+            font-size: 0.9rem;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .team-abbr {
+            color: #667;
+            font-size: 0.75rem;
+            margin-left: 0.25rem;
+        }
+        .team-score {
+            font-size: 1.4rem;
+            font-weight: 700;
+            min-width: 36px;
+            text-align: right;
+            font-variant-numeric: tabular-nums;
+        }
+        .team-row.winner .team-name,
+        .team-row.winner .team-score { color: #fff; }
+        .team-row.loser .team-name  { color: #667788; }
+        .team-row.loser .team-score { color: #667788; }
+
+        /* ── Empty state ── */
+        .empty-state {
+            text-align: center;
+            padding: 4rem 2rem;
+            color: #556;
+        }
+        .empty-state h2 { font-size: 1.3rem; margin-bottom: 0.5rem; color: #889; }
+        .empty-state p { font-size: 0.9rem; }
+
+        /* ── Loading ── */
+        .loading {
+            text-align: center;
+            padding: 4rem;
+            color: #667;
+        }
+        .spinner {
+            width: 32px; height: 32px;
+            border: 3px solid #1e293b;
+            border-top: 3px solid #d4a843;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+            margin: 0 auto 1rem;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        /* ── Error toast ── */
+        .error-toast {
+            position: fixed;
+            bottom: 1.5rem;
+            right: 1.5rem;
+            background: #5c2020;
+            color: #f5a5a5;
+            padding: 0.75rem 1.25rem;
+            border-radius: 3px;
+            font-size: 0.85rem;
+            display: none;
+            z-index: 100;
+        }
+
+        /* ── Responsive ── */
+        @media (max-width: 640px) {
+            .header { padding: 1rem; }
+            .header h1 { font-size: 1.15rem; }
+            .games-grid { padding: 0 1rem 1rem; grid-template-columns: 1fr; }
+        }
+    </style>
+</head>
+<body>
+
+<div class="header">
+    <div class="header-left">
+        <h1><span>SEC</span> Baseball Scoreboard</h1>
+        <span class="badge">LIVE</span>
+    </div>
+    <div class="header-right">
+        <span class="game-count" id="gameCount">— games</span>
+        <span>
+            <span class="status-dot idle" id="statusDot"></span>
+            Updated <span id="lastUpdated">—</span>
+        </span>
+    </div>
+</div>
+
+<div class="date-nav">
+    <button id="prevDay">◀ Prev</button>
+    <span class="current-date" id="currentDate"></span>
+    <button id="nextDay">Next ▶</button>
+</div>
+
+<div id="content">
+    <div class="loading">
+        <div class="spinner"></div>
+        Loading scores…
+    </div>
+</div>
+
+<div class="error-toast" id="errorToast">Failed to fetch scores</div>
+
+<script>
+    // ── Config ──
+    const POLL_INTERVAL_MS = 60_000; // 60 seconds (change to 30_000 for 30s)
+    const API_URL = "/api/scores";
+
+    // ── State ──
+    let currentDate = "{{ date }}";
+    let pollTimer = null;
+
+    // ── DOM ──
+    const $content      = document.getElementById("content");
+    const $gameCount    = document.getElementById("gameCount");
+    const $lastUpdated  = document.getElementById("lastUpdated");
+    const $statusDot    = document.getElementById("statusDot");
+    const $currentDate  = document.getElementById("currentDate");
+    const $errorToast   = document.getElementById("errorToast");
+    const $prevDay      = document.getElementById("prevDay");
+    const $nextDay      = document.getElementById("nextDay");
+
+    // ── Helpers ──
+    function formatDisplayDate(yyyymmdd) {
+        const y = yyyymmdd.slice(0, 4);
+        const m = yyyymmdd.slice(4, 6);
+        const d = yyyymmdd.slice(6, 8);
+        const dt = new Date(+y, +m - 1, +d);
+        return dt.toLocaleDateString("en-US", {
+            weekday: "short", month: "short", day: "numeric", year: "numeric"
+        });
+    }
+
+    function shiftDate(yyyymmdd, days) {
+        const y = +yyyymmdd.slice(0, 4);
+        const m = +yyyymmdd.slice(4, 6) - 1;
+        const d = +yyyymmdd.slice(6, 8);
+        const dt = new Date(y, m, d + days);
+        const yy = dt.getFullYear();
+        const mm = String(dt.getMonth() + 1).padStart(2, "0");
+        const dd = String(dt.getDate()).padStart(2, "0");
+        return `${yy}${mm}${dd}`;
+    }
+
+    function statusClass(status) {
+        const s = status.toLowerCase();
+        if (s.includes("progress") || s.includes("top") || s.includes("bot") || s.includes("mid") || s.includes("end")) return "in-progress";
+        if (s.includes("final"))    return "final";
+        if (s.includes("cancel"))   return "canceled";
+        return "scheduled";
+    }
+
+    function teamRowClass(game, side) {
+        if (!game.status.toLowerCase().includes("final")) return "";
+        const homeWins = game.home_score > game.away_score;
+        if (side === "home") return homeWins ? "winner" : "loser";
+        return homeWins ? "loser" : "winner";
+    }
+
+    function rankLabel(rank) {
+        return rank <= 25 ? `#${rank}` : "";
+    }
+
+    function flashDot() {
+        $statusDot.className = "status-dot live";
+        setTimeout(() => { $statusDot.className = "status-dot idle"; }, 3000);
+    }
+
+    function showError(msg) {
+        $errorToast.textContent = msg;
+        $errorToast.style.display = "block";
+        setTimeout(() => { $errorToast.style.display = "none"; }, 5000);
+    }
+
+    // ── Render ──
+    function renderGames(games) {
+        if (!games.length) {
+            $content.innerHTML = `
+                <div class="empty-state">
+                    <h2>No SEC Games</h2>
+                    <p>No SEC baseball games found for this date. Try another day.</p>
+                </div>`;
+            return;
+        }
+
+        const cards = games.map(g => {
+            const cls = statusClass(g.inning_state || g.status);
+            const isLive = cls === "in-progress";
+            return `
+            <div class="game-card ${isLive ? 'live' : ''}">
+                <div class="card-status ${cls}">
+                    <span>${g.inning_state || g.status}</span>
+                </div>
+                <div class="card-body">
+                    <div class="team-row ${teamRowClass(g, 'away')}">
+                        <div class="team-info">
+                            <span class="team-rank">${rankLabel(g.away_rank)}</span>
+                            <span class="team-name">${g.away_team}<span class="team-abbr">${g.away_abbr}</span></span>
+                        </div>
+                        <span class="team-score">${g.away_score}</span>
+                    </div>
+                    <div class="team-row ${teamRowClass(g, 'home')}">
+                        <div class="team-info">
+                            <span class="team-rank">${rankLabel(g.home_rank)}</span>
+                            <span class="team-name">${g.home_team}<span class="team-abbr">${g.home_abbr}</span></span>
+                        </div>
+                        <span class="team-score">${g.home_score}</span>
+                    </div>
+                </div>
+            </div>`;
+        }).join("");
+
+        $content.innerHTML = `<div class="games-grid">${cards}</div>`;
+    }
+
+    // ── Fetch ──
+    async function fetchScores() {
+        try {
+            const resp = await fetch(`${API_URL}?date=${currentDate}`);
+            if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+            const data = await resp.json();
+
+            renderGames(data.games);
+            $gameCount.textContent = `${data.count} game${data.count !== 1 ? 's' : ''}`;
+            $lastUpdated.textContent = new Date(data.fetched_at).toLocaleTimeString();
+            flashDot();
+        } catch (err) {
+            console.error("Fetch error:", err);
+            showError(`Failed to fetch scores: ${err.message}`);
+        }
+    }
+
+    // ── Polling ──
+    function startPolling() {
+        stopPolling();
+        fetchScores();
+        pollTimer = setInterval(fetchScores, POLL_INTERVAL_MS);
+    }
+
+    function stopPolling() {
+        if (pollTimer) clearInterval(pollTimer);
+    }
+
+    // ── Date nav ──
+    function setDate(d) {
+        currentDate = d;
+        $currentDate.textContent = formatDisplayDate(d);
+        // update URL without reload
+        const url = new URL(window.location);
+        url.searchParams.set("date", d);
+        history.replaceState(null, "", url);
+        startPolling();
+    }
+
+    $prevDay.addEventListener("click", () => setDate(shiftDate(currentDate, -1)));
+    $nextDay.addEventListener("click", () => setDate(shiftDate(currentDate, +1)));
+
+    // ── Init ──
+    $currentDate.textContent = formatDisplayDate(currentDate);
+    startPolling();
+</script>
+
+</body>
+</html>
