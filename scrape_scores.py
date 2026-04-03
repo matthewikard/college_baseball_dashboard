@@ -6,9 +6,9 @@ Focuses on SEC games but can show all D1 baseball.
 
 import requests
 from datetime import datetime, timedelta
-from collections import defaultdict
 import json
 import sys
+import time
 
 
 ESPN_SCOREBOARD_URL = "https://site.api.espn.com/apis/site/v2/sports/baseball/college-baseball/scoreboard"
@@ -30,13 +30,37 @@ SEC_TEAM_IDS = {
     "TA&M": 123, "VAN": 120,
 }
 
+# ── Cache ──────────────────────────────────────────────────
+# Standings and schedules change at most when a game finishes,
+# so we cache them and only re-fetch every CACHE_TTL seconds.
+
+CACHE_TTL = 600  # 10 minutes
+
+_cache = {
+    "standings": {"data": None, "expires": 0},
+    "schedules": {"data": None, "expires": 0},
+}
+
+
+def _cache_get(key):
+    """Return cached value if still fresh, else None."""
+    entry = _cache.get(key)
+    if entry and entry["data"] is not None and time.time() < entry["expires"]:
+        return entry["data"]
+    return None
+
+
+def _cache_set(key, data):
+    """Store data in cache with TTL."""
+    _cache[key] = {"data": data, "expires": time.time() + CACHE_TTL}
+
+
+# ── ESPN API helpers ───────────────────────────────────────
 
 def fetch_scoreboard(date=None, limit=100):
     """Fetch the ESPN scoreboard for college baseball.
 
-    Args:
-        date: Date string in YYYYMMDD format. Defaults to today.
-        limit: Max number of games to return.
+    This is NOT cached — it needs to be fresh for live scores.
     """
     params = {"limit": limit}
     if date:
@@ -47,36 +71,50 @@ def fetch_scoreboard(date=None, limit=100):
     return resp.json()
 
 
-def _fetch_team_conf_record(team_id, team_abbr, season=None):
-    """Fetch a single SEC team's schedule and count conference W-L.
+def _fetch_all_sec_schedules(season=None):
+    """Fetch and cache all 16 SEC team schedules.
 
-    Conference games are identified by both teams being in SEC_ABBRS.
+    Returns a dict keyed by team abbreviation, where each value is the
+    raw list of events from the team's schedule endpoint.
     """
+    cached = _cache_get("schedules")
+    if cached is not None:
+        return cached
+
     if not season:
         season = datetime.now().year
 
-    url = f"{ESPN_TEAM_URL}/{team_id}/schedule"
-    resp = requests.get(url, params={"season": season}, timeout=10)
-    resp.raise_for_status()
-    data = resp.json()
+    schedules = {}
+    for abbr, team_id in SEC_TEAM_IDS.items():
+        try:
+            url = f"{ESPN_TEAM_URL}/{team_id}/schedule"
+            resp = requests.get(url, params={"season": season}, timeout=10)
+            resp.raise_for_status()
+            schedules[abbr] = resp.json().get("events", [])
+        except Exception:
+            schedules[abbr] = []
 
+    _cache_set("schedules", schedules)
+    return schedules
+
+
+def _calc_conf_record(abbr, events):
+    """Count conference W-L from a team's schedule events."""
     conf_wins = 0
     conf_losses = 0
 
-    for event in data.get("events", []):
+    for event in events:
         comp = event.get("competitions", [{}])[0]
-        status = comp.get("status", {}).get("type", {})
-        if not status.get("completed", False):
+        if not comp.get("status", {}).get("type", {}).get("completed", False):
             continue
 
         competitors = comp.get("competitors", [])
         abbrs = [c["team"]["abbreviation"] for c in competitors]
 
-        # Both teams must be SEC for it to be a conference game
         if not all(a in SEC_ABBRS for a in abbrs):
             continue
 
-        us = next((c for c in competitors if c["team"]["abbreviation"] == team_abbr), None)
+        us = next((c for c in competitors if c["team"]["abbreviation"] == abbr), None)
         if us and us.get("winner"):
             conf_wins += 1
         elif us:
@@ -86,15 +124,19 @@ def _fetch_team_conf_record(team_id, team_abbr, season=None):
 
 
 def fetch_standings(season=None):
-    """Fetch SEC standings with actual conference records from team schedules.
+    """Fetch SEC standings with actual conference records.
 
-    Returns a dict keyed by team abbreviation with overall record,
-    conference record, streak, and conference standing position.
+    Cached for CACHE_TTL seconds. Uses the shared schedule cache
+    so conference records don't require extra API calls.
     """
+    cached = _cache_get("standings")
+    if cached is not None:
+        return cached
+
     if not season:
         season = datetime.now().year
 
-    # Get overall stats from the standings endpoint
+    # Get overall stats from the standings endpoint (1 API call)
     params = {"season": season}
     resp = requests.get(ESPN_STANDINGS_URL, params=params, timeout=10)
     resp.raise_for_status()
@@ -107,7 +149,6 @@ def fetch_standings(season=None):
 
     entries = children[0].get("standings", {}).get("entries", [])
 
-    # Build a lookup of overall stats for SEC teams
     overall_stats = {}
     for entry in entries:
         team = entry.get("team", {})
@@ -124,13 +165,14 @@ def fetch_standings(season=None):
             "streak": stats.get("streak", {}).get("displayValue", ""),
         }
 
-    # Fetch actual conference records from each team's schedule
+    # Fetch schedules (cached — 16 API calls only when cache is cold)
+    schedules = _fetch_all_sec_schedules(season)
+
+    # Build standings from actual conference game results
     sec_entries = []
-    for abbr, team_id in SEC_TEAM_IDS.items():
-        try:
-            conf_wins, conf_losses = _fetch_team_conf_record(team_id, abbr, season)
-        except Exception:
-            conf_wins, conf_losses = 0, 0
+    for abbr in SEC_TEAM_IDS:
+        events = schedules.get(abbr, [])
+        conf_wins, conf_losses = _calc_conf_record(abbr, events)
 
         base = overall_stats.get(abbr, {})
         conf_gp = conf_wins + conf_losses
@@ -152,7 +194,6 @@ def fetch_standings(season=None):
         sec_entries.append(team_data)
         standings[abbr] = team_data
 
-    # Sort by conference win pct (desc), then conf wins (desc), then overall wins (desc)
     sec_entries.sort(
         key=lambda t: (t["league_pct"], t["conf_wins"], t["wins"]),
         reverse=True,
@@ -161,27 +202,18 @@ def fetch_standings(season=None):
         t["standing"] = i
         standings[t["abbr"]] = t
 
+    _cache_set("standings", standings)
     return standings
 
 
 def fetch_series_record(date_str, sec_games_today):
     """Find the current series record for each matchup on today's scoreboard.
 
-    Looks at each SEC team's schedule to find consecutive games against the
-    same opponent surrounding the given date. Handles Thu-Sat, Fri-Sun,
-    rain-delay shifts, or any other scheduling pattern.
-
-    Args:
-        date_str: YYYYMMDD date string for the current scoreboard.
-        sec_games_today: List of parsed SEC game dicts from today's scoreboard,
-            used to know which matchups to look up.
-
-    Returns a dict keyed by team abbreviation:
-        {"ALA": {"label": "ALA 2-1 AUB", "wins": 2, "losses": 1, "opponent": "AUB"}, ...}
+    Uses the shared schedule cache — no additional API calls needed
+    if standings have already been fetched this cycle.
     """
     target_date = datetime.strptime(date_str, "%Y%m%d").date()
 
-    # Collect the matchups we need to look up from today's games
     matchups_to_check = set()
     for g in sec_games_today:
         ha, aa = g["home_abbr"], g["away_abbr"]
@@ -191,31 +223,23 @@ def fetch_series_record(date_str, sec_games_today):
     if not matchups_to_check:
         return {}
 
-    # For each matchup, fetch one team's schedule and find the series
+    # Reuse cached schedules (already fetched by fetch_standings)
+    schedules = _fetch_all_sec_schedules(target_date.year)
+
     series = {}
     for t1, t2 in matchups_to_check:
-        team_id = SEC_TEAM_IDS.get(t1)
-        if not team_id:
-            continue
-
-        try:
-            url = f"{ESPN_TEAM_URL}/{team_id}/schedule"
-            resp = requests.get(url, params={"season": target_date.year}, timeout=10)
-            resp.raise_for_status()
-            schedule = resp.json()
-        except Exception:
-            continue
+        events = schedules.get(t1, [])
 
         # Pull all games vs the opponent, sorted by date
         vs_games = []
-        for event in schedule.get("events", []):
+        for event in events:
             comp = event.get("competitions", [{}])[0]
             competitors = comp.get("competitors", [])
             abbrs = {c["team"]["abbreviation"] for c in competitors}
             if t2 not in abbrs:
                 continue
 
-            game_date_str = event.get("date", "")[:10]  # "2026-03-28T..."
+            game_date_str = event.get("date", "")[:10]
             try:
                 game_date = datetime.strptime(game_date_str, "%Y-%m-%d").date()
             except ValueError:
@@ -233,7 +257,7 @@ def fetch_series_record(date_str, sec_games_today):
 
         vs_games.sort(key=lambda g: g["date"])
 
-        # Find consecutive runs (series) of games — a gap of 4+ days starts a new series
+        # Group into series — a gap of 4+ days starts a new series
         series_groups = []
         current_group = []
         for g in vs_games:
@@ -244,7 +268,7 @@ def fetch_series_record(date_str, sec_games_today):
         if current_group:
             series_groups.append(current_group)
 
-        # Find the series that contains the target date
+        # Find the series containing the target date
         active_series = None
         for group in series_groups:
             first = group[0]["date"]
@@ -256,7 +280,6 @@ def fetch_series_record(date_str, sec_games_today):
         if not active_series:
             continue
 
-        # Tally wins from completed games in this series
         t1_wins = sum(1 for g in active_series if g["completed"] and g["t1_won"])
         t2_wins = sum(1 for g in active_series if g["completed"] and not g["t1_won"])
 
@@ -266,6 +289,8 @@ def fetch_series_record(date_str, sec_games_today):
 
     return series
 
+
+# ── Parsing & display ──────────────────────────────────────
 
 def parse_games(data):
     """Parse ESPN API response into a clean list of game dicts."""
@@ -277,7 +302,6 @@ def parse_games(data):
         home = next(c for c in competitors if c["homeAway"] == "home")
         away = next(c for c in competitors if c["homeAway"] == "away")
 
-        # Extract overall record from scoreboard
         home_records = home.get("records", [])
         away_records = away.get("records", [])
         home_record = home_records[0]["summary"] if home_records else ""
@@ -321,7 +345,6 @@ def enrich_games(games, standings, series):
             g[f"{side}_standing"] = team_standing.get("standing", 0)
             g[f"{side}_streak"] = team_standing.get("streak", "")
 
-        # Series record for this matchup
         home_series = series.get(g["home_abbr"])
         if home_series and home_series.get("opponent") == g["away_abbr"]:
             g["series_label"] = home_series["label"]
@@ -377,7 +400,6 @@ def main():
     games = parse_games(data)
     sec_games = [g for g in games if is_sec_game(g)]
 
-    # Fetch standings and series for enrichment
     standings = fetch_standings()
     series = fetch_series_record(date, sec_games)
 
