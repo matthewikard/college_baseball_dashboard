@@ -32,3 +32,6 @@ instance/
 
 # Claude
 .claude/
+
+# Mockups
+mockups.html

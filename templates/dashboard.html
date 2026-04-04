@@ -145,18 +145,20 @@
             text-transform: none;
         }
 
-        .card-body { padding: 0.6rem 1rem 0.75rem; }
+        .card-body { padding: 0.5rem 1rem 0.6rem; }
 
         .team-row {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            padding: 0.45rem 0;
+            padding: 0.4rem 0;
         }
         .team-row + .team-row {
             border-top: 1px solid #1e293b;
         }
 
+        .team-main {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
         .team-left {
             display: flex;
             align-items: center;
@@ -177,26 +179,6 @@
             overflow: hidden;
             text-overflow: ellipsis;
         }
-        .team-abbr {
-            color: #667;
-            font-size: 0.75rem;
-            margin-left: 0.25rem;
-        }
-        .team-meta {
-            display: flex;
-            align-items: center;
-            gap: 0.75rem;
-            flex-shrink: 0;
-        }
-        .team-record {
-            font-size: 0.7rem;
-            color: #667;
-            text-align: right;
-            line-height: 1.3;
-        }
-        .team-record .conf {
-            color: #8899aa;
-        }
         .team-score {
             font-size: 1.4rem;
             font-weight: 700;
@@ -204,22 +186,19 @@
             text-align: right;
             font-variant-numeric: tabular-nums;
         }
+        .team-sub {
+            display: flex;
+            gap: 1rem;
+            padding: 0.2rem 0 0 24px;
+            font-size: 0.7rem;
+            color: #667;
+        }
+        .team-sub span { white-space: nowrap; }
+
         .team-row.winner .team-name,
         .team-row.winner .team-score { color: #fff; }
         .team-row.loser .team-name  { color: #667788; }
         .team-row.loser .team-score { color: #667788; }
-
-        .card-footer {
-            padding: 0.35rem 1rem 0.5rem;
-            border-top: 1px solid #1e293b;
-            display: flex;
-            justify-content: space-between;
-            font-size: 0.65rem;
-            color: #556;
-        }
-        .standing-tag {
-            color: #889;
-        }
 
         /* ── Empty state ── */
         .empty-state {
@@ -396,19 +375,14 @@
                 ? `<span class="series-badge">Series: ${g.series_label}</span>`
                 : "";
 
-            // Build record display: "19-7 (8-2 SEC)"
-            const awayRec = g.away_record
-                ? g.away_record + (g.away_conf_record ? ` <span class="conf">(${g.away_conf_record} SEC)</span>` : "")
-                : "";
-            const homeRec = g.home_record
-                ? g.home_record + (g.home_conf_record ? ` <span class="conf">(${g.home_conf_record} SEC)</span>` : "")
-                : "";
-
-            // Standing + streak for footer
-            const awaySt = g.away_standing ? `${standingLabel(g.away_standing)} in SEC` : "";
-            const homeSt = g.home_standing ? `${standingLabel(g.home_standing)} in SEC` : "";
-            const awayStreak = g.away_streak || "";
-            const homeStreak = g.home_streak || "";
+            function subRow(record, confRecord, standing, streak) {
+                const parts = [];
+                if (record) parts.push(record);
+                if (confRecord) parts.push(confRecord + " SEC");
+                if (standing) parts.push(standingLabel(standing) + " in SEC");
+                if (streak) parts.push(streak);
+                return parts.map(p => `<span>${p}</span>`).join("");
+            }
 
             return `
             <div class="game-card ${isLive ? 'live' : ''}">
@@ -418,29 +392,29 @@
                 </div>
                 <div class="card-body">
                     <div class="team-row ${teamRowClass(g, 'away')}">
-                        <div class="team-left">
-                            <span class="team-rank">${rankLabel(g.away_rank)}</span>
-                            <span class="team-name">${g.away_team}<span class="team-abbr">${g.away_abbr}</span></span>
-                        </div>
-                        <div class="team-meta">
-                            <span class="team-record">${awayRec}</span>
+                        <div class="team-main">
+                            <div class="team-left">
+                                <span class="team-rank">${rankLabel(g.away_rank)}</span>
+                                <span class="team-name">${g.away_team}</span>
+                            </div>
                             <span class="team-score">${g.away_score}</span>
+                        </div>
+                        <div class="team-sub">
+                            ${subRow(g.away_record, g.away_conf_record, g.away_standing, g.away_streak)}
                         </div>
                     </div>
                     <div class="team-row ${teamRowClass(g, 'home')}">
-                        <div class="team-left">
-                            <span class="team-rank">${rankLabel(g.home_rank)}</span>
-                            <span class="team-name">${g.home_team}<span class="team-abbr">${g.home_abbr}</span></span>
-                        </div>
-                        <div class="team-meta">
-                            <span class="team-record">${homeRec}</span>
+                        <div class="team-main">
+                            <div class="team-left">
+                                <span class="team-rank">${rankLabel(g.home_rank)}</span>
+                                <span class="team-name">${g.home_team}</span>
+                            </div>
                             <span class="team-score">${g.home_score}</span>
                         </div>
+                        <div class="team-sub">
+                            ${subRow(g.home_record, g.home_conf_record, g.home_standing, g.home_streak)}
+                        </div>
                     </div>
-                </div>
-                <div class="card-footer">
-                    <span class="standing-tag">${awaySt}${awayStreak ? ' / ' + awayStreak : ''}</span>
-                    <span class="standing-tag">${homeSt}${homeStreak ? ' / ' + homeStreak : ''}</span>
                 </div>
             </div>`;
         }).join("");
