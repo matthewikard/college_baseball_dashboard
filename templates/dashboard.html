@@ -379,7 +379,7 @@
             const isLive = cls === "in-progress";
 
             const seriesHtml = g.series_label
-                ? `<span class="series-badge">Series: ${g.series_label}</span>`
+                ? `<span class="series-badge">Series: ${g.series_label}${(g.series_label.includes("3-0") || g.series_label.includes("0-3")) ? " 🧹" : ""}</span>`
                 : "";
 
             function subRow(record, confRecord, standing, streak) {
